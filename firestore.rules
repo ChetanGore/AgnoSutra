@@ -1,0 +1,155 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // User profiles (patients and doctors)
+    match /users/{userId} {
+      // Users can read and write their own profile
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      // All authenticated users can read doctor profiles
+      allow read: if request.auth != null && resource.data.role == 'doctor';
+      
+      // Allow updating doctor stats fields (from review system)
+      // This allows any authenticated user to update ONLY the stats fields when submitting a review
+      allow update: if request.auth != null 
+        && resource.data.role == 'doctor'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'averageRating', 
+          'totalReviews', 
+          'totalAppointments', 
+          'isBestDoctor', 
+          'detailedRatings',
+          'updatedAt'
+        ]);
+    }
+    
+    // Allow authenticated users to manage their own subscription
+    match /subscriptions/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Appointment rules
+    match /appointments/{appointmentId} {
+      // Allow users to read appointments where they are patient or doctor
+      allow read: if request.auth != null && 
+        (resource.data.patientId == request.auth.uid || resource.data.doctorId == request.auth.uid);
+      
+      // Allow authenticated users to create appointments (for both patients and test creation)
+      allow create: if request.auth != null;
+      
+      // Allow patients and doctors to update their own appointments
+      allow update: if request.auth != null && 
+        (resource.data.patientId == request.auth.uid || resource.data.doctorId == request.auth.uid);
+      
+      // Allow patients and doctors to delete their own appointments
+      allow delete: if request.auth != null && 
+        (resource.data.patientId == request.auth.uid || resource.data.doctorId == request.auth.uid);
+    }
+    
+    // Allow listing appointments for doctors and patients
+    match /appointments/{document=**} {
+      allow list: if request.auth != null;
+    }
+    
+    // Notification rules
+    match /notifications/{notificationId} {
+      // Allow users to read their own notifications
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      
+      // Allow authenticated users to create notifications
+      allow create: if request.auth != null;
+      
+      // Allow users to update their own notifications (mark as read)
+      allow update: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+    
+    // Allow listing notifications for users
+    match /notifications/{document=**} {
+      allow list: if request.auth != null;
+    }
+    
+    // Chat/Messages rules (if you add chat functionality)
+    match /chats/{chatId} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Admin collections (if needed)
+    match /admin/{document=**} {
+      allow read, write: if request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    // Payments/Billing (if you add payment functionality)
+    match /payments/{paymentId} {
+      allow read, write: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+    
+    // Reviews/Ratings
+    match /reviews/{reviewId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.patientId;
+      allow update, delete: if request.auth != null && request.auth.uid == resource.data.patientId;
+    }
+    
+    // Doctor Schedules
+    match /doctorSchedules/{scheduleId} {
+      // Doctors can create, read, update, delete their own schedules
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.doctorId;
+      allow read: if request.auth != null;
+      allow update: if request.auth != null && request.auth.uid == resource.data.doctorId;
+      allow delete: if request.auth != null && request.auth.uid == resource.data.doctorId;
+    }
+    
+    // Allow listing schedules (for patients booking appointments)
+    match /doctorSchedules/{document=**} {
+      allow list: if request.auth != null;
+    }
+    
+    // Patient Records (created after appointment completion)
+    match /patientRecords/{recordId} {
+      // Doctors can create records for their patients
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.doctorId;
+      
+      // Patients can read their own records
+      allow read: if request.auth != null && 
+        (request.auth.uid == resource.data.patientId || request.auth.uid == resource.data.doctorId);
+      
+      // Doctors can update records they created
+      allow update: if request.auth != null && request.auth.uid == resource.data.doctorId;
+    }
+    
+    // Allow listing patient records
+    match /patientRecords/{document=**} {
+      allow list: if request.auth != null;
+    }
+    
+    // Health Camps
+    match /health_camps/{campId} {
+      // Anyone authenticated can read camps
+      allow read: if request.auth != null;
+      
+      // Doctors can create camps
+      allow create: if request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'doctor';
+      
+      // Doctors can update their own camps
+      allow update: if request.auth != null && 
+        (request.auth.uid == resource.data.organizerId || 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['registered', 'registeredPatients']));
+      
+      // Doctors can delete their own camps
+      allow delete: if request.auth != null && request.auth.uid == resource.data.organizerId;
+    }
+    
+    // Allow listing health camps
+    match /health_camps/{document=**} {
+      allow list: if request.auth != null;
+    }
+    
+    // Allow read access to public data
+    match /public/{document=**} {
+      allow read: if true;
+    }
+  }
+}
